@@ -119,12 +119,13 @@ class IWSLT2017DataModule(LightningDataModule):
                 test_size=self.test_proportion,
                 seed=42
             )
-            self.train_ds = BaseDataset(splits['train'])
-            self.val_ds = BaseDataset(splits['test'])
 
             # Sort each split by length
-            self.train_ds=self.train_ds.sort('length_src', reverse=True)
-            self.val_ds=self.val_ds.sort('length_src', reverse=True)
+            splits['train'] = splits['train'].sort('length_src', reverse=True)
+            splits['test'] = splits['test'].sort('length_src', reverse=True)
+
+            self.train_ds = BaseDataset(splits['train'])
+            self.val_ds = BaseDataset(splits['test'])
 
     def pad_collate_fn(self, batch: List[Tuple[torch.Tensor, torch.Tensor]]) -> Tuple[torch.Tensor, torch.Tensor]:
         """

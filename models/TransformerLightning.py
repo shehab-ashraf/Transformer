@@ -6,7 +6,7 @@ from torchmetrics.text import BLEUScore
 import pytorch_lightning as pl
 
 
-from ..Config import Config  # Import Config class
+from Config import Config  # Import Config class
 
 class TransformerLightning(pl.LightningModule):
     def __init__(

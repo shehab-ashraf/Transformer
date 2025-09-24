@@ -99,7 +99,6 @@ def train():
     callbacks = [
         # Stop if not improving
         EarlyStopping(
-            patience=5,
             monitor="val_loss",
             patience=5,
             mode="min",

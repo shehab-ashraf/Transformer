@@ -2,6 +2,7 @@ import torch.nn as nn
 
 from .MultiHeadAttentionBlock import MultiHeadAttentionBlock
 from .ResidualConnection import ResidualConnection
+from .FeedForwardBlock import FeedForwardBlock
 
 class DecoderBlock(nn.Module):
 

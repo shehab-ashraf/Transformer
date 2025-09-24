@@ -1,8 +1,12 @@
-import torch
-import wandb
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"  # ADD THIS LINE FIRST!
+
+# THEN import everything else
 import pytorch_lightning as pl
+import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import WandbLogger
+import torch
 
 from models.TransformerBlocks.Transformer import Transformer
 from models.TransformerLightning import TransformerLightning

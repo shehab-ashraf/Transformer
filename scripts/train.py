@@ -12,8 +12,6 @@ from Config import Config
 
 
 def train():
-
-    print("Starting Transformer training with comprehensive logging")
     
     # Initialize configuration
     config = Config()
@@ -57,8 +55,7 @@ def train():
     # Prepare the data (tokenizer and preprocessing)
     print("Preparing data and tokenizer...")
     datamodule.prepare()
-    print(f"Data preparation complete. Vocab size: {datamodule.tokenizer.vocab_size}")
-    
+    print(f"Data preparation complete. Vocab size: {datamodule.tokenizer.get_vocab_size()}")   
     # Create transformer model
     print("Creating Transformer model...")
     transformer = Transformer(
@@ -72,11 +69,6 @@ def train():
         dropout=config.model.dropout,
         d_ff=config.model.d_ff
     )
-    
-    # Count model parameters
-    total_params = sum(p.numel() for p in transformer.parameters())
-    trainable_params = sum(p.numel() for p in transformer.parameters() if p.requires_grad)
-    print(f"Model created: {total_params:,} total parameters, {trainable_params:,} trainable")
     
     # Create lightning module
     print("Creating Lightning module...")
@@ -117,10 +109,8 @@ def train():
         logger=wandb_logger,
         gradient_clip_val=1.0,
         log_every_n_steps=10,  # Log every 10 steps
-        val_check_interval=0.5,  # Validate twice per epoch
         enable_progress_bar=True,
         enable_model_summary=True,
-        precision=16,  # Use mixed precision for faster training
     )
     
     # Log training setup

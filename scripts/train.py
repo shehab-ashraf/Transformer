@@ -4,8 +4,8 @@ from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import WandbLogger
 import torch
 
-from models.architectures.Transformer import Transformer
-from models.lightning_transformer import TransformerLightning
+from models.TransformerBlocks.Transformer import Transformer
+from models.TransformerLightning import TransformerLightning
 from data.iwslt2017 import IWSLT2017DataModule
 from Config import Config
 

@@ -121,8 +121,8 @@ class IWSLT2017DataModule(LightningDataModule):
             )
 
             # Sort each split by length
-            splits['train'] = splits['train'].sort('length_src', reverse=True)
-            splits['test'] = splits['test'].sort('length_src', reverse=True)
+            # splits['train'] = splits['train'].sort('length_src', reverse=True)
+            # splits['test'] = splits['test'].sort('length_src', reverse=True)
 
             self.train_ds = BaseDataset(splits['train'])
             self.val_ds = BaseDataset(splits['test'])

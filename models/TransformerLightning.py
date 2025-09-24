@@ -30,7 +30,7 @@ class TransformerLightning(pl.LightningModule):
         )
         
         # Initialize BLEU metric
-        self.bleu = BLEUScore(n_gram=config.evaluation.bleu_n_gram)
+        self.bleu = BLEUScore(n_gram=4)
         
     def forward(self, src, tgt):
         src_mask = self.create_src_mask(src)

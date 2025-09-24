@@ -34,7 +34,7 @@ class TrainingConfig:
     gradient_clip_val: float = 1.0
     weight_decay: float = 0.0
     label_smoothing: float = 0.1  # paper default
-    accumulate_grad_batches: int = 2
+    accumulate_grad_batches: int = 4
     optimizer_betas: tuple = (0.9, 0.98)  # paper default
     optimizer_eps: float = 1e-9    # paper default
 

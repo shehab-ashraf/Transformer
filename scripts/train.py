@@ -3,7 +3,6 @@ import wandb
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import WandbLogger
-import os
 
 from models.TransformerBlocks.Transformer import Transformer
 from models.TransformerLightning import TransformerLightning
@@ -89,12 +88,24 @@ def train():
     
     # Callbacks
     callbacks = [
+        ModelCheckpoint(
+            dirpath="checkpoints",
+            filename="transformer-{epoch:02d}-{val_loss:.2f}-{val_bleu_epoch:.3f}",
+            monitor="val_bleu_epoch", 
+            mode="max",
+            save_top_k=3, 
+            save_last=True,
+            verbose=True,
+            every_n_epochs=1, 
+            save_weights_only=False, 
+        ),
         # Stop if not improving
         EarlyStopping(
-            monitor="val_loss",
+            monitor="val_bleu_epoch",  # Monitor BLEU instead of loss
             patience=5,
-            mode="min",
-            min_delta=0.01
+            mode="max",
+            min_delta=0.001,
+            verbose=True
         )
     ]
     

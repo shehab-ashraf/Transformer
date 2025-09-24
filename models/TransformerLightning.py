@@ -42,14 +42,15 @@ class TransformerLightning(pl.LightningModule):
     
     def create_src_mask(self, src):
         src_mask = (src != 0).unsqueeze(1).unsqueeze(2)
-        return src_mask
+        return src_mask.to(self.device)
     
     def create_tgt_mask(self, tgt):
         tgt_mask = (tgt != 0).unsqueeze(1).unsqueeze(2)
         seq_length = tgt.size(1)
         nopeak_mask = (1 - torch.triu(torch.ones(1, seq_length, seq_length), diagonal=1)).bool()
-        tgt_mask = tgt_mask & nopeak_mask
-        return tgt_mask
+        tgt_mask = tgt_mask.to(self.device)
+        nopeak_mask = nopeak_mask.to(self.device)
+        return tgt_mask & nopeak_mask
 
     def training_step(self, batch, batch_idx):
         src, tgt = batch
@@ -59,7 +60,13 @@ class TransformerLightning(pl.LightningModule):
         logits = self(src, tgt_input)
         loss = self.criterion(logits.reshape(-1, logits.size(-1)), tgt_output.reshape(-1))
         
-        self.log('train_loss', loss)
+        # Get current learning rate
+        current_lr = self.trainer.optimizers[0].param_groups[0]['lr']
+        
+        # Step-level logging with comprehensive metrics
+        self.log('train_loss_step', loss, on_step=True, on_epoch=False, prog_bar=True)
+        self.log('learning_rate', current_lr, on_step=True, on_epoch=False, prog_bar=True)
+
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -86,7 +93,7 @@ class TransformerLightning(pl.LightningModule):
             # Update BLEU metric state
             self.bleu.update([pred_text], [[ref_text]])
             
-        self.log('val_loss', loss, prog_bar=True)
+        self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
         return loss
     
     def on_validation_epoch_end(self):

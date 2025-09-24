@@ -54,8 +54,8 @@ class Transformer(nn.Module):
         # xavier initialization
         self.init_with_xavier()
 
-        # Sharing weights between two embedding layers
-        self.src_embed.weight = self.tgt_embed.weight
+        # Sharing weights between embedding layers
+        self.src_embed.embedding.weight = self.tgt_embed.embedding.weight
 
 
     def encode(self, src, src_mask):

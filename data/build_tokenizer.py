@@ -18,12 +18,11 @@ def get_all_data(data):
 
 def build_tokenizer(data, vocab_size, min_frequency=5, save_dir='checkpoints/tokenizer'):
     """
-    Build and save a BPE tokenizer for a given language from IWSLT2017 dataset.
+    Build and save a BPE tokenizer.
 
     Args:
         save_dir (str): Directory to save the tokenizer JSON file.
-        min_frequency (int): Minimum frequency of subwords to be kept.
-        vocab_size (int or None): Maximum vocabulary size (None = unlimited).
+        vocab_size (int or None): Maximum vocabulary size.
 
     Returns:
         Tokenizer: The trained tokenizer object.
@@ -48,7 +47,14 @@ def build_tokenizer(data, vocab_size, min_frequency=5, save_dir='checkpoints/tok
     ])
 
     # 4. Trainer
-    special_tokens = ["[UNK]", "[PAD]", "[SOS]", "[EOS]"]
+    special_tokens = ["[PAD]", "[UNK]", "[SOS]", "[EOS]"]  # PAD is 0, UNK is 1, SOS is 2, EOS is 3
+    
+    trainer = trainers.BpeTrainer(
+        vocab_size=vocab_size,
+        min_frequency=min_frequency,
+        special_tokens=special_tokens,
+        show_progress=True,
+    )
     trainer = trainers.BpeTrainer(
         special_tokens=special_tokens,
         min_frequency=min_frequency,
@@ -72,7 +78,7 @@ def build_tokenizer(data, vocab_size, min_frequency=5, save_dir='checkpoints/tok
     )
 
     # 6. Save
-    save_path = f"{save_dir}/tokenizer.json"
-    tokenizer.save(save_path)
+    # save_path = f"{save_dir}/tokenizer.json"
+    # tokenizer.save(save_path)
 
     return tokenizer

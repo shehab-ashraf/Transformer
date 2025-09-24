@@ -54,7 +54,7 @@ class IWSLT2017DataModule(LightningDataModule):
         # Load and preprocess dataset
         logging.info("Loading IWSLT2017 dataset...")
         self.data = (
-            load_dataset("iwslt2017", "iwslt2017-de-en", split='train', trust_remote_code=False)
+            load_dataset("iwslt2017", "iwslt2017-de-en", split='train', trust_remote_code=True)
             .shuffle(seed=42)
             .select(range(self.data_size))
             .flatten()
@@ -93,7 +93,7 @@ class IWSLT2017DataModule(LightningDataModule):
         )
 
     def _tokenize_example(self, example: dict) -> dict:
-        """Tokenizes a single example"""
+        """Tokenizes a single example. SOS/EOS are added by the tokenizer's post-processor"""
         return {
             'translation_src': self.tokenizer.encode(example['translation_src']).ids,
             'translation_trg': self.tokenizer.encode(example['translation_trg']).ids,
@@ -139,7 +139,7 @@ class IWSLT2017DataModule(LightningDataModule):
         """
         src_sequences, trg_sequences = zip(*batch)
         
-        pad_id = self.tokenizer.token_to_id("[PAD]")
+        pad_id = self.tokenizer.token_to_id("[PAD]")  # Should be 0
         
         # Pad sequences to max length in batch
         src_padded = pad_sequence(src_sequences, batch_first=True, padding_value=pad_id)

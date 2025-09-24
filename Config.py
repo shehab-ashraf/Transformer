@@ -28,7 +28,7 @@ class ModelConfig:
 
 @dataclass
 class TrainingConfig:
-    max_epochs: int = 20
+    max_epochs: int = 30
     learning_rate: float = 1.0    # base LR for Noam schedule (scaled by LambdaLR)
     warmup_steps: int = 4000      # paper default
     gradient_clip_val: float = 1.0

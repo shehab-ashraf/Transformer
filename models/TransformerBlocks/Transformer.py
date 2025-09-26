@@ -51,12 +51,12 @@ class Transformer(nn.Module):
         self.projection_layer = projection_layer
 
 
-        # xavier initialization
-        self.init_with_xavier()
-
-        # Sharing weights between embedding layers
+        # Sharing weights between embedding layers (before initialization)
         self.src_embed.embedding.weight = self.tgt_embed.embedding.weight
-        self.projection_layer.output_layer.weight = self.tgt_embed.embedding.weight
+        self.projection_layer.proj.weight = self.tgt_embed.embedding.weight
+
+        # xavier initialization (after weight sharing)
+        self.init_with_xavier()
 
 
     def encode(self, src, src_mask):

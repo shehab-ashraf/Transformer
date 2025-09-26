@@ -1,5 +1,5 @@
 import os
-os.environ["TOKENIZERS_PARALLELISM"] = "false"  # ADD THIS LINE FIRST!
+os.environ["TOKENIZERS_PARALLELISM"] = "false" 
 
 # THEN import everything else
 import pytorch_lightning as pl
@@ -27,14 +27,12 @@ def train():
     config.model.dropout = 0.3  # Increased dropout for better regularization
     
     config.data.batch_size = 32  
-    config.data.max_seq_len = 128  
-    config.data.data_size = 200000
-    config.data.test_proportion = 0.1
+    config.data.max_seq_len = 128
     
     config.training.max_epochs = 30  
-    config.training.warmup_steps = 8000  # More warmup steps for stability
+    config.training.warmup_steps = 8000  
     config.training.label_smoothing = 0.1
-    config.training.accumulate_grad_batches = 4  
+    config.training.accumulate_grad_batches = 2  
 
     # Log configuration
     print(f"Training configuration: {config}")
@@ -49,10 +47,8 @@ def train():
         batch_size=config.data.batch_size,
         num_workers=4,
         pin_memory=True,
-        data_size=config.data.data_size,
         max_seq_len=config.data.max_seq_len,
-        test_proportion=config.data.test_proportion,
-        vocab_size=config.tokenizer.vocab_size
+        vocab_size=config.tokenizer.vocab_size,
     )
     
     # Prepare the data (tokenizer and preprocessing)
@@ -135,12 +131,16 @@ def train():
     
     # Train model
     print("Starting training...")
-
     trainer.fit(model, datamodule=datamodule)
+    
+    # Test model on test set
+    print("Starting test evaluation...")
+    test_results = trainer.test(model, datamodule=datamodule)
+    print(f"Test results: {test_results}")
     
     # Close wandb
     wandb.finish()
-    print("Training completed successfully!")
+    print("Training and testing completed successfully!")
 
 if __name__ == "__main__":
     train()

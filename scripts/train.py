@@ -80,7 +80,7 @@ def train():
     # Setup wandb logging
     print("Setting up Weights & Biases logging...")
     wandb_logger = WandbLogger(
-        project="transformer",
+        project="Transformer",
         name="iwslt2017",
         log_model=True,
         save_dir="logs"

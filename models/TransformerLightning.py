@@ -103,12 +103,49 @@ class TransformerLightning(pl.LightningModule):
         # Reset metric for next epoch
         self.bleu.reset()
 
+    def test_step(self, batch, batch_idx):
+        """Test step for final evaluation on test set"""
+        src, tgt = batch
+        tgt_input = tgt[:, :-1]
+        tgt_output = tgt[:, 1:]
+        
+        logits = self(src, tgt_input)
+        loss = self.criterion(logits.reshape(-1, logits.size(-1)), tgt_output.reshape(-1))
+        
+        # Get predictions
+        pred = logits.argmax(-1)
+        
+        # Decode predictions and targets using tokenizer
+        for pred_seq, ref_seq in zip(pred, tgt_output):
+            # Remove padding tokens and decode
+            pred_mask = pred_seq != 0
+            ref_mask = ref_seq != 0
+            
+            # Decode using tokenizer
+            pred_text = self.tokenizer.decode(pred_seq[pred_mask].tolist())
+            ref_text = self.tokenizer.decode(ref_seq[ref_mask].tolist())
+            
+            # Update BLEU metric state
+            self.bleu.update([pred_text], [[ref_text]])
+            
+        self.log('test_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
+        return loss
+    
+    def on_test_epoch_end(self):
+        """Compute and log final test BLEU score"""
+        # Compute and log the final test BLEU score
+        test_bleu_score = self.bleu.compute()
+        self.log('test_bleu_epoch', test_bleu_score, prog_bar=True)
+        
+        # Reset metric for next run
+        self.bleu.reset()
+
     def configure_optimizers(self):
         optimizer = Adam(
             self.parameters(),
             lr=self.config.training.learning_rate,
             betas=self.config.training.optimizer_betas,
-            eps=self.config.training.optimizer_eps
+            eps=self.config.training.optimizer_eps,
         )
         
         def lr_lambda(step):

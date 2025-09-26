@@ -20,20 +20,18 @@ class IWSLT2017DataModule(LightningDataModule):
         batch_size: int,
         num_workers: int,
         pin_memory: bool,
-        data_size: int,
         max_seq_len: int,
-        test_proportion: float,
-        vocab_size: int
+        vocab_size: int,
+        use_full_dataset: bool = True
     ):
         """
         Args:
             batch_size: Number of samples in each batch
             num_workers: Number of subprocesses for data loading
             pin_memory: Pin memory for faster GPU transfer
-            data_size: Number of samples to use from dataset
             max_seq_len: Maximum sequence length to keep
-            test_proportion: Proportion of data to use for validation
             vocab_size: Size of tokenizer vocabulary
+            use_full_dataset: Whether to use full dataset or subset
         """
         super().__init__()
         self.save_hyperparameters()
@@ -41,62 +39,67 @@ class IWSLT2017DataModule(LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.pin_memory = pin_memory
-        self.data_size = data_size
         self.max_seq_len = max_seq_len
-        self.test_proportion = test_proportion
         self.vocab_size = vocab_size
         
         self.tokenizer = None
-        self.data = None
+        self.dataset_dict = None
+        self.train_ds = None
+        self.val_ds = None
+        self.test_ds = None
 
     def prepare(self) -> None:
         """Prepares data by loading, preprocessing and tokenizing"""
-        # Load and preprocess dataset
-        logging.info("Loading IWSLT2017 dataset...")
-        self.data = (
-            load_dataset("iwslt2017", "iwslt2017-de-en", split='train', trust_remote_code=True)
-            .shuffle(seed=42)
-            .select(range(self.data_size))
-            .flatten()
-        )
+        # Load full dataset with all splits
+        logging.info("Loading IWSLT2017 dataset with all splits...")
+        self.dataset_dict = load_dataset("iwslt2017", "iwslt2017-de-en", trust_remote_code=True)
         
-        # Rename columns for clarity
-        self.data = self.data.rename_columns({
-            'translation.de': 'translation_trg',
-            'translation.en': 'translation_src'
-        })
+        logging.info(f"Dataset loaded: {self.dataset_dict}")
+        logging.info(f"Train: {len(self.dataset_dict['train'])} samples")
+        logging.info(f"Validation: {len(self.dataset_dict['validation'])} samples") 
+        logging.info(f"Test: {len(self.dataset_dict['test'])} samples")
 
-        # Build and train tokenizer
-        logging.info("Building tokenizer...")
+        # Build and train tokenizer on ALL data (train + validation + test)
+        logging.info("Building tokenizer on all data...")
         self.tokenizer = build_tokenizer(
-            data=self.data,
+            dataset_dict=self.dataset_dict,
             vocab_size=self.vocab_size
         )
 
-        # Tokenize all sequences
-        logging.info("Tokenizing sequences...")
-        self.data = self.data.map(
-            self._tokenize_example,
-            desc="Tokenizing"
-        )
-
-        # Add sequence lengths and filter
-        logging.info("Filtering by sequence length...")
-        self.data = (
-            self.data.map(
-                self._add_lengths,
-                batched=True,
-                batch_size=10000,
-                desc="Computing lengths"
+        # Tokenize all splits
+        logging.info("Tokenizing all splits...")
+        for split_name in ['train', 'validation', 'test']:
+            logging.info(f"Tokenizing {split_name} split...")
+            self.dataset_dict[split_name] = self.dataset_dict[split_name].map(
+                self._tokenize_example,
+                desc=f"Tokenizing {split_name}"
             )
-            .filter(self._filter_by_length)
-        )
+
+        # Add sequence lengths and filter for all splits
+        logging.info("Filtering by sequence length...")
+        for split_name in ['train', 'validation', 'test']:
+            logging.info(f"Filtering {split_name} split...")
+            self.dataset_dict[split_name] = (
+                self.dataset_dict[split_name].map(
+                    self._add_lengths,
+                    batched=True,
+                    batch_size=10000,
+                    desc=f"Computing lengths for {split_name}"
+                )
+                .filter(self._filter_by_length)
+            )
+            
+        logging.info("Data preparation complete!")
+        logging.info(f"Final dataset sizes:")
+        logging.info(f"Train: {len(self.dataset_dict['train'])} samples")
+        logging.info(f"Validation: {len(self.dataset_dict['validation'])} samples")
+        logging.info(f"Test: {len(self.dataset_dict['test'])} samples")
 
     def _tokenize_example(self, example: dict) -> dict:
         """Tokenizes a single example. SOS/EOS are added by the tokenizer's post-processor"""
         return {
-            'translation_src': self.tokenizer.encode(example['translation_src']).ids,
-            'translation_trg': self.tokenizer.encode(example['translation_trg']).ids,
+            'translation_src': self.tokenizer.encode(example['translation']['de']).ids,  # German source
+            'translation_trg': self.tokenizer.encode(example['translation']['en']).ids,  # English target
         }
 
     def _add_lengths(self, example: dict) -> dict:
@@ -112,20 +115,15 @@ class IWSLT2017DataModule(LightningDataModule):
                 example['length_trg'] <= self.max_seq_len)
 
     def setup(self, stage: str) -> None:
-        """Sets up train/val splits"""
+        """Sets up train/val/test splits"""
         if stage == "fit":
-            # Create train/validation split
-            splits = self.data.train_test_split(
-                test_size=self.test_proportion,
-                seed=42
-            )
-
-            # Sort each split by length
-            # splits['train'] = splits['train'].sort('length_src', reverse=True)
-            # splits['test'] = splits['test'].sort('length_src', reverse=True)
-
-            self.train_ds = BaseDataset(splits['train'])
-            self.val_ds = BaseDataset(splits['test'])
+            # Use the predefined train and validation splits
+            self.train_ds = BaseDataset(self.dataset_dict['train'])
+            self.val_ds = BaseDataset(self.dataset_dict['validation'])
+            
+        elif stage == "test":
+            # Use the predefined test split
+            self.test_ds = BaseDataset(self.dataset_dict['test'])
 
     def pad_collate_fn(self, batch: List[Tuple[torch.Tensor, torch.Tensor]]) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -161,6 +159,16 @@ class IWSLT2017DataModule(LightningDataModule):
         """Returns the validation dataloader"""
         return DataLoader(
             self.val_ds,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            pin_memory=self.pin_memory,
+            collate_fn=self.pad_collate_fn,
+        )
+    
+    def test_dataloader(self) -> DataLoader:
+        """Returns the test dataloader"""
+        return DataLoader(
+            self.test_ds,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,

@@ -56,6 +56,7 @@ class Transformer(nn.Module):
 
         # Sharing weights between embedding layers
         self.src_embed.embedding.weight = self.tgt_embed.embedding.weight
+        self.projection_layer.output_layer.weight = self.tgt_embed.embedding.weight
 
 
     def encode(self, src, src_mask):

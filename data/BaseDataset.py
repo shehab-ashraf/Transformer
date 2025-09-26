@@ -24,13 +24,14 @@ class BaseDataset(Dataset):
             
         Returns:
             Tuple containing:
-            - Source sequence tensor
-            - Target sequence tensor
+            - Source sequence tensor with [SOS] and [EOS]
+            - Target sequence tensor with [SOS] and [EOS]
         """
         src_encoded = self.dataset[idx]['translation_src']
         trg_encoded = self.dataset[idx]['translation_trg']
         
-        return (
-            torch.tensor(src_encoded, dtype=torch.long),
-            torch.tensor(trg_encoded, dtype=torch.long),
-        )
+        # Convert to tensors
+        src_tensor = torch.tensor(src_encoded, dtype=torch.long)
+        trg_tensor = torch.tensor(trg_encoded, dtype=torch.long)
+        
+        return src_tensor, trg_tensor

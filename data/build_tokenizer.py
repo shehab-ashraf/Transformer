@@ -1,28 +1,15 @@
 from tokenizers import Tokenizer, models, normalizers, pre_tokenizers, trainers, processors
+from datasets import DatasetDict
 
-def get_all_data(data):
+def build_tokenizer(dataset_dict: DatasetDict, vocab_size: int, min_frequency: int = 3, save_dir: str = 'checkpoints/tokenizer'):
     """
-    Yields individual texts for tokenizer training.
+    Build and save a BPE tokenizer using all splits of a DatasetDict.
     
     Args:
-        data: Dataset containing translation pairs
-        
-    Yields:
-        Individual texts for tokenizer training, alternating between source and target
-    """
-    for item in data:
-        # Yield source text
-        yield item['translation_src']
-        # Yield target text
-        yield item['translation_trg']
-
-def build_tokenizer(data, vocab_size, min_frequency=5, save_dir='checkpoints/tokenizer'):
-    """
-    Build and save a BPE tokenizer.
-
-    Args:
-        save_dir (str): Directory to save the tokenizer JSON file.
-        vocab_size (int or None): Maximum vocabulary size.
+        dataset_dict: DatasetDict containing train, validation, and test splits
+        vocab_size: Maximum vocabulary size
+        min_frequency: Minimum frequency for tokens
+        save_dir: Directory to save the tokenizer JSON file
 
     Returns:
         Tokenizer: The trained tokenizer object.
@@ -34,9 +21,9 @@ def build_tokenizer(data, vocab_size, min_frequency=5, save_dir='checkpoints/tok
     # 2. Normalizer
     tokenizer.normalizer = normalizers.Sequence([
         normalizers.NFC(),
-        normalizers.Replace("“", '"'),
-        normalizers.Replace("”", '"'),
-        normalizers.Replace("’", "'"),
+        normalizers.Replace(""", '"'),
+        normalizers.Replace(""", '"'),
+        normalizers.Replace("'", "'"),
         normalizers.Strip()
     ])
 
@@ -55,14 +42,21 @@ def build_tokenizer(data, vocab_size, min_frequency=5, save_dir='checkpoints/tok
         special_tokens=special_tokens,
         show_progress=True,
     )
-    trainer = trainers.BpeTrainer(
-        special_tokens=special_tokens,
-        min_frequency=min_frequency,
-        vocab_size=vocab_size
-    )
 
-    # 5. Train tokenizer
-    tokenizer.train_from_iterator(get_all_data(data), trainer=trainer)
+    # 5. Create data iterator for all splits
+    def get_all_data():
+        """Yields all texts from all splits for tokenizer training"""
+        for split_name in ['train', 'validation', 'test']:
+            if split_name in dataset_dict:
+                split_data = dataset_dict[split_name]
+                for item in split_data:
+                    # Yield source text (German)
+                    yield item['translation']['de']
+                    # Yield target text (English)
+                    yield item['translation']['en']
+
+    # Train tokenizer on all data
+    tokenizer.train_from_iterator(get_all_data(), trainer=trainer)
 
     # Get token IDs
     SOS_token_id = tokenizer.token_to_id("[SOS]")
@@ -76,9 +70,5 @@ def build_tokenizer(data, vocab_size, min_frequency=5, save_dir='checkpoints/tok
             ("[EOS]", EOS_token_id),
         ],
     )
-
-    # 6. Save
-    # save_path = f"{save_dir}/tokenizer.json"
-    # tokenizer.save(save_path)
 
     return tokenizer

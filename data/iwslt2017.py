@@ -51,23 +51,23 @@ class IWSLT2017DataModule(LightningDataModule):
     def prepare(self) -> None:
         """Prepares data by loading, preprocessing and tokenizing"""
         # Load full dataset with all splits
-        logging.info("Loading IWSLT2017 dataset with all splits...")
+        print("Loading IWSLT2017 dataset with all splits...")
         self.dataset_dict = load_dataset("iwslt2017", "iwslt2017-de-en", trust_remote_code=True)
         
-        logging.info(f"Dataset loaded: {self.dataset_dict}")
-        logging.info(f"Train: {len(self.dataset_dict['train'])} samples")
-        logging.info(f"Validation: {len(self.dataset_dict['validation'])} samples") 
-        logging.info(f"Test: {len(self.dataset_dict['test'])} samples")
+        print(f"Dataset loaded: {self.dataset_dict}")
+        print(f"Train: {len(self.dataset_dict['train'])} samples")
+        print(f"Validation: {len(self.dataset_dict['validation'])} samples") 
+        print(f"Test: {len(self.dataset_dict['test'])} samples")
 
         # Build and train tokenizer on ALL data (train + validation + test)
-        logging.info("Building tokenizer on all data...")
+        print("Building tokenizer on all data...")
         self.tokenizer = build_tokenizer(
             dataset_dict=self.dataset_dict,
             vocab_size=self.vocab_size
         )
 
         # Tokenize all splits
-        logging.info("Tokenizing all splits...")
+        print("Tokenizing all splits...")
         for split_name in ['train', 'validation', 'test']:
             logging.info(f"Tokenizing {split_name} split...")
             self.dataset_dict[split_name] = self.dataset_dict[split_name].map(
@@ -76,7 +76,7 @@ class IWSLT2017DataModule(LightningDataModule):
             )
 
         # Add sequence lengths and filter for all splits
-        logging.info("Filtering by sequence length...")
+        print("Filtering by sequence length...")
         for split_name in ['train', 'validation', 'test']:
             logging.info(f"Filtering {split_name} split...")
             self.dataset_dict[split_name] = (
@@ -89,11 +89,11 @@ class IWSLT2017DataModule(LightningDataModule):
                 .filter(self._filter_by_length)
             )
             
-        logging.info("Data preparation complete!")
-        logging.info(f"Final dataset sizes:")
-        logging.info(f"Train: {len(self.dataset_dict['train'])} samples")
-        logging.info(f"Validation: {len(self.dataset_dict['validation'])} samples")
-        logging.info(f"Test: {len(self.dataset_dict['test'])} samples")
+        print("Data preparation complete!")
+        print(f"Final dataset sizes:")
+        print(f"Train: {len(self.dataset_dict['train'])} samples")
+        print(f"Validation: {len(self.dataset_dict['validation'])} samples")
+        print(f"Test: {len(self.dataset_dict['test'])} samples")
 
     def _tokenize_example(self, example: dict) -> dict:
         """Tokenizes a single example. SOS/EOS are added by the tokenizer's post-processor"""

@@ -43,11 +43,12 @@ class TokenBasedBatchSampler:
         longest_trg_sentence = 0
         
         for idx in self.indices:
-            example = self.dataset[idx]
+            example = self.dataset[idx]  # This returns (src_tensor, trg_tensor)
             
-            # Get sequence lengths
-            src_length = len(example['translation_src'])
-            trg_length = len(example['translation_trg'])
+            # Get sequence lengths from the tuple
+            src_tensor, trg_tensor = example
+            src_length = len(src_tensor)
+            trg_length = len(trg_tensor)
             
             # Update longest sequences in current batch
             longest_src_sentence = max(longest_src_sentence, src_length)

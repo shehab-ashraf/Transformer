@@ -24,15 +24,15 @@ def train():
     config.model.n_heads = 8
     config.model.n_layers = 6
     config.model.d_ff = 2048
-    config.model.dropout = 0.3  # Increased dropout for better regularization
+    config.model.dropout = 0.1 
     
     config.data.batch_size = 32  
     config.data.max_seq_len = 128
     
-    config.training.max_epochs = 30  
-    config.training.warmup_steps = 8000  
+    config.training.max_epochs = 20  
+    config.training.warmup_steps = 4000  
     config.training.label_smoothing = 0.1
-    config.training.accumulate_grad_batches = 2  
+    config.training.accumulate_grad_batches = 2 
 
     # Log configuration
     print(f"Training configuration: {config}")

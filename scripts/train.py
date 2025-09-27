@@ -30,12 +30,12 @@ def train():
     config.data.batch_size = 32  # Fallback for non-token batching
     config.data.max_seq_len = 100
     config.data.use_token_batching = True  # Enable token-based batching
-    config.data.target_tokens_per_batch = 500  # Target tokens per batch (like high-performing config)
+    config.data.target_tokens_per_batch = 1500  # Target tokens per batch (like high-performing config)
     
     config.training.max_epochs = 20  
     config.training.warmup_steps = 4000  
     config.training.label_smoothing = 0.1
-    config.training.accumulate_grad_batches = 2 
+    config.training.accumulate_grad_batches = 1
 
     # Log configuration
     print(f"Training configuration: {config}")

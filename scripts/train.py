@@ -22,8 +22,6 @@ def train():
     
     config.data.batch_size = 32  
     config.data.max_seq_len = 100  
-    config.data.data_size = 200000
-    config.data.test_proportion = 0.1
     
     config.training.max_epochs = 20 
     config.training.warmup_steps = 4000  
@@ -35,9 +33,7 @@ def train():
         batch_size=config.data.batch_size,
         num_workers=4,
         pin_memory=True,
-        data_size=config.data.data_size,
         max_seq_len=config.data.max_seq_len,
-        test_proportion=config.data.test_proportion,
         vocab_size=config.tokenizer.vocab_size
     )
     
@@ -66,7 +62,7 @@ def train():
     
     # Setup wandb logging
     wandb_logger = WandbLogger(
-        project="transformer",
+        project="Transformer",
         name="iwslt2017",
         log_model=True
     )
@@ -99,7 +95,7 @@ def train():
         callbacks=callbacks,
         logger=wandb_logger,
         gradient_clip_val=1.0,
-        log_every_n_steps=50,
+        log_every_n_steps=10,
     )
     
     # Train model

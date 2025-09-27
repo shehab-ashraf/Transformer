@@ -10,6 +10,74 @@ from .build_tokenizer import build_tokenizer
 from .BaseDataset import BaseDataset
 
 
+class TokenBasedBatchSampler:
+    """
+    Batch sampler that implements the same logic as batch_size_fn from the high-performing config.
+    
+    This creates batches based on total token count rather than fixed number of examples.
+    It replicates the behavior of torchtext's BucketIterator with batch_size_fn.
+    """
+    
+    def __init__(self, dataset, target_tokens: int = 500):
+        """
+        Args:
+            dataset: The dataset to sample from
+            target_tokens: Target number of tokens per batch
+        """
+        self.dataset = dataset
+        self.target_tokens = target_tokens
+        self.indices = list(range(len(dataset)))
+        
+        print(f"TokenBasedBatchSampler initialized:")
+        print(f"  - Dataset size: {len(dataset)}")
+        print(f"  - Target tokens per batch: {target_tokens}")
+    
+    def __iter__(self):
+        """Generate batches based on token count (same logic as batch_size_fn)"""
+        # Shuffle indices for each epoch
+        import random
+        random.shuffle(self.indices)
+        
+        batch = []
+        longest_src_sentence = 0
+        longest_trg_sentence = 0
+        
+        for idx in self.indices:
+            example = self.dataset[idx]
+            
+            # Get sequence lengths
+            src_length = len(example['translation_src'])
+            trg_length = len(example['translation_trg'])
+            
+            # Update longest sequences in current batch
+            longest_src_sentence = max(longest_src_sentence, src_length)
+            longest_trg_sentence = max(longest_trg_sentence, trg_length)
+            
+            # Calculate total tokens if we add this example
+            # This is the same logic as batch_size_fn
+            num_of_tokens_in_src_tensor = (len(batch) + 1) * longest_src_sentence
+            num_of_tokens_in_trg_tensor = (len(batch) + 1) * longest_trg_sentence
+            total_tokens = max(num_of_tokens_in_src_tensor, num_of_tokens_in_trg_tensor)
+            
+            # If adding this example would exceed target tokens, yield current batch
+            if total_tokens > self.target_tokens and len(batch) > 0:
+                yield batch
+                batch = [idx]
+                longest_src_sentence = src_length
+                longest_trg_sentence = trg_length
+            else:
+                batch.append(idx)
+        
+        # Yield the last batch if it's not empty
+        if batch:
+            yield batch
+    
+    def __len__(self):
+        """Estimate number of batches"""
+        # Rough estimate based on average sequence length
+        return len(self.dataset) // max(1, self.target_tokens // 50)
+
+
 class IWSLT2017DataModule(LightningDataModule):
     """
     PyTorch Lightning data module for IWSLT2017 DE-EN translation dataset
@@ -22,16 +90,20 @@ class IWSLT2017DataModule(LightningDataModule):
         pin_memory: bool,
         max_seq_len: int,
         vocab_size: int,
-        use_full_dataset: bool = True
+        use_full_dataset: bool = True,
+        use_token_batching: bool = False,
+        target_tokens_per_batch: int = 500
     ):
         """
         Args:
-            batch_size: Number of samples in each batch
+            batch_size: Number of samples in each batch (used when use_token_batching=False)
             num_workers: Number of subprocesses for data loading
             pin_memory: Pin memory for faster GPU transfer
             max_seq_len: Maximum sequence length to keep
             vocab_size: Size of tokenizer vocabulary
             use_full_dataset: Whether to use full dataset or subset
+            use_token_batching: Whether to use token-based batching instead of fixed batch size
+            target_tokens_per_batch: Target number of tokens per batch (used when use_token_batching=True)
         """
         super().__init__()
         self.save_hyperparameters()
@@ -41,6 +113,8 @@ class IWSLT2017DataModule(LightningDataModule):
         self.pin_memory = pin_memory
         self.max_seq_len = max_seq_len
         self.vocab_size = vocab_size
+        self.use_token_batching = use_token_batching
+        self.target_tokens_per_batch = target_tokens_per_batch
         
         self.tokenizer = None
         self.dataset_dict = None
@@ -147,13 +221,31 @@ class IWSLT2017DataModule(LightningDataModule):
 
     def train_dataloader(self) -> DataLoader:
         """Returns the training dataloader"""
-        return DataLoader(
-            self.train_ds,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            collate_fn=self.pad_collate_fn
-        )
+        if self.use_token_batching:
+            # Use token-based batching
+            print(f"Using token-based batching with target: {self.target_tokens_per_batch} tokens per batch")
+            # Use custom batch sampler that creates batches based on token count
+            batch_sampler = TokenBasedBatchSampler(
+                self.train_ds, 
+                target_tokens=self.target_tokens_per_batch
+            )
+            return DataLoader(
+                self.train_ds,
+                batch_sampler=batch_sampler,
+                num_workers=self.num_workers,
+                pin_memory=self.pin_memory,
+                collate_fn=self.pad_collate_fn
+            )
+        else:
+            # Use traditional fixed batch size
+            print(f"Using fixed batch size: {self.batch_size} sentences per batch")
+            return DataLoader(
+                self.train_ds,
+                batch_size=self.batch_size,
+                num_workers=self.num_workers,
+                pin_memory=self.pin_memory,
+                collate_fn=self.pad_collate_fn
+            )
     
     def val_dataloader(self) -> DataLoader:
         """Returns the validation dataloader"""

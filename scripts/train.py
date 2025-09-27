@@ -1,7 +1,3 @@
-import os
-os.environ["TOKENIZERS_PARALLELISM"] = "false" 
-
-# THEN import everything else
 import pytorch_lightning as pl
 import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
@@ -13,9 +9,7 @@ from models.TransformerLightning import TransformerLightning
 from data.iwslt2017 import IWSLT2017DataModule
 from Config import Config
 
-
 def train():
-    
     # Initialize configuration
     config = Config()
     
@@ -24,45 +18,33 @@ def train():
     config.model.n_heads = 8
     config.model.n_layers = 6
     config.model.d_ff = 2048
-    config.model.dropout = 0.1 
+    config.model.dropout = 0.1
     
-    # Token-based batching configuration (like the high-performing config)
-    config.data.batch_size = 32  # Fallback for non-token batching
-    config.data.max_seq_len = 100
-    config.data.use_token_batching = True  # Enable token-based batching
-    config.data.target_tokens_per_batch = 1500  # Target tokens per batch (like high-performing config)
+    config.data.batch_size = 32  
+    config.data.max_seq_len = 100  
+    config.data.data_size = 200000
+    config.data.test_proportion = 0.1
     
-    config.training.max_epochs = 20  
+    config.training.max_epochs = 20 
     config.training.warmup_steps = 4000  
     config.training.label_smoothing = 0.1
-    config.training.accumulate_grad_batches = 1
-
-    # Log configuration
-    print(f"Training configuration: {config}")
-    print(f"Model config: d_model={config.model.d_model}, n_heads={config.model.n_heads}, n_layers={config.model.n_layers}")
-    print(f"Data config: batch_size={config.data.batch_size}, max_seq_len={config.data.max_seq_len}")
-    print(f"Batching: use_token_batching={config.data.use_token_batching}, target_tokens={config.data.target_tokens_per_batch}")
-    print(f"Training config: max_epochs={config.training.max_epochs}, warmup_steps={config.training.warmup_steps}")
+    config.training.accumulate_grad_batches = 2
 
     # Initialize data module
-    print("Initializing data module...")
-
     datamodule = IWSLT2017DataModule(
         batch_size=config.data.batch_size,
         num_workers=4,
         pin_memory=True,
+        data_size=config.data.data_size,
         max_seq_len=config.data.max_seq_len,
-        vocab_size=config.tokenizer.vocab_size,
-        use_token_batching=config.data.use_token_batching,
-        target_tokens_per_batch=config.data.target_tokens_per_batch
+        test_proportion=config.data.test_proportion,
+        vocab_size=config.tokenizer.vocab_size
     )
     
     # Prepare the data (tokenizer and preprocessing)
-    print("Preparing data and tokenizer...")
     datamodule.prepare()
-    print(f"Data preparation complete. Vocab size: {datamodule.tokenizer.get_vocab_size()}")   
+    
     # Create transformer model
-    print("Creating Transformer model...")
     transformer = Transformer(
         src_vocab_size=config.tokenizer.vocab_size,
         tgt_vocab_size=config.tokenizer.vocab_size,
@@ -76,7 +58,6 @@ def train():
     )
     
     # Create lightning module
-    print("Creating Lightning module...")
     model = TransformerLightning(
         config=config,
         transformer=transformer,
@@ -84,69 +65,48 @@ def train():
     )
     
     # Setup wandb logging
-    print("Setting up Weights & Biases logging...")
     wandb_logger = WandbLogger(
-        project="Transformer",
+        project="transformer",
         name="iwslt2017",
-        log_model=True,
-        save_dir="logs"
+        log_model=True
     )
     
     # Callbacks
     callbacks = [
+        # Save best models
         ModelCheckpoint(
             dirpath="checkpoints",
-            filename="transformer-{epoch:02d}-{val_loss:.2f}-{val_bleu_epoch:.3f}",
-            monitor="val_bleu_epoch", 
-            mode="max",
-            save_top_k=3, 
-            save_last=True,
-            verbose=True,
-            every_n_epochs=1, 
-            save_weights_only=False, 
+            filename="transformer-{epoch:02d}-{val_loss:.2f}",
+            monitor="val_loss",
+            mode="min",
+            save_top_k=3,
         ),
         # Stop if not improving
         EarlyStopping(
-            monitor="val_bleu_epoch",  # Monitor BLEU instead of loss
+            monitor="val_loss",
             patience=5,
-            mode="max",
-            min_delta=0.001,
-            verbose=True
-        )
+            mode="min",
+            min_delta=0.01
+        ),
     ]
     
     # Initialize trainer
-    print("Initializing PyTorch Lightning trainer...")
     trainer = pl.Trainer(
         max_epochs=config.training.max_epochs,
-        accelerator="gpu",
+        accelerator="auto",
         devices=1,
         accumulate_grad_batches=config.training.accumulate_grad_batches,
         callbacks=callbacks,
         logger=wandb_logger,
         gradient_clip_val=1.0,
-        log_every_n_steps=10,  # Log every 10 steps
-        enable_progress_bar=True,
-        enable_model_summary=True,
+        log_every_n_steps=50,
     )
     
-    # Log training setup
-    print(f"Trainer configured with {trainer.num_devices} device(s)")
-    print(f"Training will run for {config.training.max_epochs} epochs")
-    print(f"Gradient accumulation: {config.training.accumulate_grad_batches} batches")
-    
     # Train model
-    print("Starting training...")
     trainer.fit(model, datamodule=datamodule)
-    
-    # Test model on test set
-    print("Starting test evaluation...")
-    test_results = trainer.test(model, datamodule=datamodule)
-    print(f"Test results: {test_results}")
     
     # Close wandb
     wandb.finish()
-    print("Training and testing completed successfully!")
 
 if __name__ == "__main__":
     train()

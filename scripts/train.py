@@ -26,8 +26,11 @@ def train():
     config.model.d_ff = 2048
     config.model.dropout = 0.1 
     
-    config.data.batch_size = 32  
-    config.data.max_seq_len = 128
+    # Token-based batching configuration (like the high-performing config)
+    config.data.batch_size = 32  # Fallback for non-token batching
+    config.data.max_seq_len = 100
+    config.data.use_token_batching = True  # Enable token-based batching
+    config.data.target_tokens_per_batch = 500  # Target tokens per batch (like high-performing config)
     
     config.training.max_epochs = 20  
     config.training.warmup_steps = 4000  
@@ -38,6 +41,7 @@ def train():
     print(f"Training configuration: {config}")
     print(f"Model config: d_model={config.model.d_model}, n_heads={config.model.n_heads}, n_layers={config.model.n_layers}")
     print(f"Data config: batch_size={config.data.batch_size}, max_seq_len={config.data.max_seq_len}")
+    print(f"Batching: use_token_batching={config.data.use_token_batching}, target_tokens={config.data.target_tokens_per_batch}")
     print(f"Training config: max_epochs={config.training.max_epochs}, warmup_steps={config.training.warmup_steps}")
 
     # Initialize data module
@@ -49,6 +53,8 @@ def train():
         pin_memory=True,
         max_seq_len=config.data.max_seq_len,
         vocab_size=config.tokenizer.vocab_size,
+        use_token_batching=config.data.use_token_batching,
+        target_tokens_per_batch=config.data.target_tokens_per_batch
     )
     
     # Prepare the data (tokenizer and preprocessing)

@@ -12,7 +12,9 @@ class DataConfig:
     batch_size: int = 32
     num_workers: int = 0
     pin_memory: bool = True
-    max_seq_len: int = 128
+    max_seq_len: int = 100
+    use_token_batching: bool = False
+    target_tokens_per_batch: int = 500
 
 @dataclass
 class ModelConfig:

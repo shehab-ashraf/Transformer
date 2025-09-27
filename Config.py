@@ -3,7 +3,7 @@ from typing import List
 
 @dataclass
 class TokenizerConfig:
-    vocab_size: int = 12000
+    vocab_size: int = 24000
     min_frequency: int = 3
     save_dir: str = "checkpoints/tokenizer"
 

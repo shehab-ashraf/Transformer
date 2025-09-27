@@ -146,7 +146,6 @@ class TransformerLightning(pl.LightningModule):
             lr=self.config.training.learning_rate,
             betas=self.config.training.optimizer_betas,
             eps=self.config.training.optimizer_eps
-            eps=self.config.training.optimizer_eps,
         )
 
         def lr_lambda(step):
@@ -165,5 +164,6 @@ class TransformerLightning(pl.LightningModule):
             'optimizer': optimizer,
             'lr_scheduler': {
                 'scheduler': scheduler,
-                'interval': 'step'}
+                'interval': 'step'
+            }
         }

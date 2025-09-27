@@ -8,6 +8,76 @@ import pytorch_lightning as pl
 
 from Config import Config  # Import Config class
 
+
+class LabelSmoothingDistribution(nn.Module):
+    """
+    Custom label smoothing implementation that creates smooth target distributions
+    instead of one-hot vectors. This is crucial for transformer training.
+    
+    Instead of setting target probability to 1.0 for correct token and 0.0 for others,
+    we set it to 'confidence_value' (e.g., 0.9) and distribute the remaining 
+    'smoothing_value' (e.g., 0.1) evenly across all other tokens.
+    
+    This prevents the model from becoming overconfident and improves generalization.
+    """
+    
+    def __init__(self, smoothing_value: float, pad_token_id: int, trg_vocab_size: int, device: torch.device):
+        """
+        Args:
+            smoothing_value: How much probability mass to redistribute (e.g., 0.1)
+            pad_token_id: Token ID for padding (should not be smoothed)
+            trg_vocab_size: Size of target vocabulary
+            device: Device to create tensors on
+        """
+        super(LabelSmoothingDistribution, self).__init__()
+        
+        # Validate smoothing value
+        assert 0.0 <= smoothing_value <= 1.0, f"Smoothing value must be between 0 and 1, got {smoothing_value}"
+        
+        # Store configuration
+        self.confidence_value = 1.0 - smoothing_value  # e.g., 0.9 if smoothing_value=0.1
+        self.smoothing_value = smoothing_value          # e.g., 0.1
+        self.pad_token_id = pad_token_id
+        self.trg_vocab_size = trg_vocab_size
+        self.device = device
+        
+        print(f"LabelSmoothingDistribution initialized:")
+        print(f"  - Confidence value: {self.confidence_value}")
+        print(f"  - Smoothing value: {self.smoothing_value}")
+        print(f"  - Pad token ID: {self.pad_token_id}")
+        print(f"  - Vocab size: {self.trg_vocab_size}")
+
+    def forward(self, trg_token_ids_batch: torch.Tensor) -> torch.Tensor:
+        """
+        Creates smooth target distributions for the given token IDs.
+        
+        Args:
+            trg_token_ids_batch: Shape (batch_size, 1) - ground truth token IDs
+            
+        Returns:
+            smooth_target_distributions: Shape (batch_size, vocab_size) - probability distributions
+        """
+        batch_size = trg_token_ids_batch.shape[0]
+        
+        # Initialize all distributions with smoothing value
+        # We distribute smoothing mass over (vocab_size - 2) because we exclude:
+        # 1. The ground truth token (will be set to confidence_value)
+        # 2. The pad token (will be set to 0)
+        smooth_target_distributions = torch.zeros((batch_size, self.trg_vocab_size), device=self.device)
+        smooth_target_distributions.fill_(self.smoothing_value / (self.trg_vocab_size - 2))
+        
+        # Set the ground truth token to confidence value
+        smooth_target_distributions.scatter_(1, trg_token_ids_batch, self.confidence_value)
+        
+        # Set pad token probability to 0 (we don't want model to predict padding)
+        smooth_target_distributions[:, self.pad_token_id] = 0.
+        
+        # Special case: if the target token IS the pad token, set entire distribution to 0
+        # This prevents the model from learning to predict padding
+        smooth_target_distributions.masked_fill_(trg_token_ids_batch == self.pad_token_id, 0.)
+        
+        return smooth_target_distributions
+
 class TransformerLightning(pl.LightningModule):
     def __init__(
         self,
@@ -23,11 +93,26 @@ class TransformerLightning(pl.LightningModule):
         # Save hyperparameters for checkpointing
         self.save_hyperparameters(ignore=['transformer', 'tokenizer'])
         
-        # Initialize loss function
-        self.criterion = nn.CrossEntropyLoss(
-            label_smoothing=config.training.label_smoothing, 
-            ignore_index=0  # assuming 0 is pad_idx
+        # Initialize loss function - KLDivLoss with custom label smoothing
+        # KLDivLoss expects LOG probabilities as input and regular probabilities as target
+        # This is why we need log_softmax in the model output
+        self.criterion = nn.KLDivLoss(reduction='batchmean')  # 'batchmean' gives better BLEU than 'mean'
+        
+        # Initialize custom label smoothing distribution
+        # Get pad token ID from tokenizer
+        pad_token_id = tokenizer.token_to_id("[PAD]")  # Get actual pad token ID
+        self.label_smoothing = LabelSmoothingDistribution(
+            smoothing_value=config.training.label_smoothing,
+            pad_token_id=pad_token_id,
+            trg_vocab_size=tokenizer.get_vocab_size(),
+            device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         )
+        
+        print(f"Loss function initialized:")
+        print(f"  - Using KLDivLoss with reduction='batchmean'")
+        print(f"  - Label smoothing value: {config.training.label_smoothing}")
+        print(f"  - Pad token ID: {pad_token_id}")
+        print(f"  - Target vocab size: {tokenizer.get_vocab_size()}")
         
         # Initialize BLEU metric
         self.bleu = BLEUScore(n_gram=4)
@@ -54,11 +139,24 @@ class TransformerLightning(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         src, tgt = batch
-        tgt_input = tgt[:, :-1]
-        tgt_output = tgt[:, 1:]
+        tgt_input = tgt[:, :-1]  # Input to decoder (without last token)
+        tgt_output = tgt[:, 1:]   # Target output (without first token)
         
-        logits = self(src, tgt_input)
-        loss = self.criterion(logits.reshape(-1, logits.size(-1)), tgt_output.reshape(-1))
+        # Forward pass - model now outputs LOG probabilities
+        log_probs = self(src, tgt_input)  # Shape: (batch_size, seq_len, vocab_size)
+        
+        # Reshape for loss computation
+        # log_probs: (batch_size * seq_len, vocab_size)
+        # tgt_output: (batch_size * seq_len, 1) - we need to reshape to (batch_size * seq_len, 1)
+        log_probs_flat = log_probs.reshape(-1, log_probs.size(-1))
+        tgt_output_flat = tgt_output.reshape(-1, 1)  # Keep as (N, 1) for label smoothing
+        
+        # Create smooth target distributions
+        smooth_targets = self.label_smoothing(tgt_output_flat)  # Shape: (batch_size * seq_len, vocab_size)
+        
+        # Compute KL divergence loss
+        # KLDivLoss expects: input=log_probs, target=probs
+        loss = self.criterion(log_probs_flat, smooth_targets)
         
         # Get current learning rate
         current_lr = self.trainer.optimizers[0].param_groups[0]['lr']
@@ -71,14 +169,26 @@ class TransformerLightning(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         src, tgt = batch
-        tgt_input = tgt[:, :-1]
-        tgt_output = tgt[:, 1:]
+        tgt_input = tgt[:, :-1]  # Input to decoder (without last token)
+        tgt_output = tgt[:, 1:]   # Target output (without first token)
         
-        logits = self(src, tgt_input)
-        loss = self.criterion(logits.reshape(-1, logits.size(-1)), tgt_output.reshape(-1))
+        # Forward pass - model now outputs LOG probabilities
+        log_probs = self(src, tgt_input)  # Shape: (batch_size, seq_len, vocab_size)
         
-        # Get predictions
-        pred = logits.argmax(-1)
+        # Reshape for loss computation
+        log_probs_flat = log_probs.reshape(-1, log_probs.size(-1))
+        tgt_output_flat = tgt_output.reshape(-1, 1)  # Keep as (N, 1) for label smoothing
+        
+        # Create smooth target distributions
+        smooth_targets = self.label_smoothing(tgt_output_flat)  # Shape: (batch_size * seq_len, vocab_size)
+        
+        # Compute KL divergence loss
+        loss = self.criterion(log_probs_flat, smooth_targets)
+        
+        # Get predictions (convert log_probs back to regular probabilities for argmax)
+        # We need to convert log_probs to regular probs for argmax
+        probs = torch.exp(log_probs)  # Convert log_probs to probs
+        pred = probs.argmax(-1)  # Get predicted token IDs
         
         # Decode predictions and targets using tokenizer
         for pred_seq, ref_seq in zip(pred, tgt_output):
@@ -106,14 +216,25 @@ class TransformerLightning(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         """Test step for final evaluation on test set"""
         src, tgt = batch
-        tgt_input = tgt[:, :-1]
-        tgt_output = tgt[:, 1:]
+        tgt_input = tgt[:, :-1]  # Input to decoder (without last token)
+        tgt_output = tgt[:, 1:]   # Target output (without first token)
         
-        logits = self(src, tgt_input)
-        loss = self.criterion(logits.reshape(-1, logits.size(-1)), tgt_output.reshape(-1))
+        # Forward pass - model now outputs LOG probabilities
+        log_probs = self(src, tgt_input)  # Shape: (batch_size, seq_len, vocab_size)
         
-        # Get predictions
-        pred = logits.argmax(-1)
+        # Reshape for loss computation
+        log_probs_flat = log_probs.reshape(-1, log_probs.size(-1))
+        tgt_output_flat = tgt_output.reshape(-1, 1)  # Keep as (N, 1) for label smoothing
+        
+        # Create smooth target distributions
+        smooth_targets = self.label_smoothing(tgt_output_flat)  # Shape: (batch_size * seq_len, vocab_size)
+        
+        # Compute KL divergence loss
+        loss = self.criterion(log_probs_flat, smooth_targets)
+        
+        # Get predictions (convert log_probs back to regular probabilities for argmax)
+        probs = torch.exp(log_probs)  # Convert log_probs to probs
+        pred = probs.argmax(-1)  # Get predicted token IDs
         
         # Decode predictions and targets using tokenizer
         for pred_seq, ref_seq in zip(pred, tgt_output):

@@ -4,7 +4,7 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import LambdaLR
 from torchmetrics.text import BLEUScore
 import pytorch_lightning as pl
-
+from nltk.translate.bleu_score import corpus_bleu
 
 from Config import Config  # Import Config class
 
@@ -68,7 +68,7 @@ class TransformerLightning(pl.LightningModule):
         self.log('learning_rate', current_lr, on_step=True, on_epoch=False, prog_bar=True)
 
         return loss
-
+    
     def validation_step(self, batch, batch_idx):
         src, tgt = batch
         tgt_input = tgt[:, :-1]
@@ -77,68 +77,52 @@ class TransformerLightning(pl.LightningModule):
         logits = self(src, tgt_input)
         loss = self.criterion(logits.reshape(-1, logits.size(-1)), tgt_output.reshape(-1))
 
-        # Get predictions
+        # Store batch results
         pred = logits.argmax(-1)
-
-        # Decode predictions and targets using tokenizer
-        for pred_seq, ref_seq in zip(pred, tgt_output):
-            # Remove padding tokens and decode
-            pred_mask = pred_seq != 0
-            ref_mask = ref_seq != 0
-
-            # Decode using tokenizer
-            pred_text = self.tokenizer.decode(pred_seq[pred_mask].tolist())
-            ref_text = self.tokenizer.decode(ref_seq[ref_mask].tolist())
-
-            # Update BLEU metric state
-            self.bleu.update([pred_text], [[ref_text]])
-
-        self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
-        return loss
+        
+        # Decode entire batch efficiently
+        pred_texts = []
+        true_texts = []
+        
+        for i in range(pred.size(0)):
+            pred_seq = pred[i]
+            ref_seq = tgt_output[i]
+            
+            # Remove padding
+            pred_mask = pred_seq != self.tokenizer.pad_token_id
+            ref_mask = ref_seq != self.tokenizer.pad_token_id
+            
+            pred_text = self.tokenizer.decode(pred_seq[pred_mask].tolist(), 
+                                            skip_special_tokens=True)
+            ref_text = self.tokenizer.decode(ref_seq[ref_mask].tolist(), 
+                                            skip_special_tokens=True)
+            
+            pred_texts.append(pred_text)
+            true_texts.append(ref_text)
+    
+            # Store for epoch end
+            if not hasattr(self, 'all_preds'):
+                self.all_preds = []
+                self.all_trues = []
+            
+            self.all_preds.extend(pred_texts)
+            self.all_trues.extend(true_texts)
+            
+            self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
+            return loss
 
     def on_validation_epoch_end(self):
-        # Compute and log the final BLEU score
-        bleu_score = self.bleu.compute()
-        self.log('val_bleu_epoch', bleu_score, prog_bar=True)
-        # Reset metric for next epoch
-        self.bleu.reset()
-
-    def test_step(self, batch, batch_idx):
-        """Test step for final evaluation on test set"""
-        src, tgt = batch
-        tgt_input = tgt[:, :-1]
-        tgt_output = tgt[:, 1:]
-        
-        logits = self(src, tgt_input)
-        loss = self.criterion(logits.reshape(-1, logits.size(-1)), tgt_output.reshape(-1))
-        
-        # Get predictions
-        pred = logits.argmax(-1)
-        
-        # Decode predictions and targets using tokenizer
-        for pred_seq, ref_seq in zip(pred, tgt_output):
-            # Remove padding tokens and decode
-            pred_mask = pred_seq != 0
-            ref_mask = ref_seq != 0
+        if hasattr(self, 'all_preds') and self.all_preds:
+            # Convert to token lists for BLEU
+            references = [[t.split()] for t in self.all_trues]
+            candidates = [p.split() for p in self.all_preds]
             
-            # Decode using tokenizer
-            pred_text = self.tokenizer.decode(pred_seq[pred_mask].tolist())
-            ref_text = self.tokenizer.decode(ref_seq[ref_mask].tolist())
+            bleu_score = corpus_bleu(references, candidates)
+            self.log('val_bleu', bleu_score, prog_bar=True)
             
-            # Update BLEU metric state
-            self.bleu.update([pred_text], [[ref_text]])
-            
-        self.log('test_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
-        return loss
-    
-    def on_test_epoch_end(self):
-        """Compute and log final test BLEU score"""
-        # Compute and log the final test BLEU score
-        test_bleu_score = self.bleu.compute()
-        self.log('test_bleu_epoch', test_bleu_score, prog_bar=True)
-        
-        # Reset metric for next run
-        self.bleu.reset()
+            # Reset
+            self.all_preds = []
+            self.all_trues = []
 
     def configure_optimizers(self):
         optimizer = Adam(

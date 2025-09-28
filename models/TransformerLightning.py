@@ -89,8 +89,8 @@ class TransformerLightning(pl.LightningModule):
             ref_seq = tgt_output[i]
             
             # Remove padding
-            pred_mask = pred_seq != self.tokenizer.pad_token_id
-            ref_mask = ref_seq != self.tokenizer.pad_token_id
+            pred_mask = pred_seq != 0
+            ref_mask = ref_seq != 0
             
             pred_text = self.tokenizer.decode(pred_seq[pred_mask].tolist(), 
                                             skip_special_tokens=True)
@@ -108,8 +108,8 @@ class TransformerLightning(pl.LightningModule):
             self.all_preds.extend(pred_texts)
             self.all_trues.extend(true_texts)
             
-            self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
-            return loss
+        self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
+        return loss
 
     def on_validation_epoch_end(self):
         if hasattr(self, 'all_preds') and self.all_preds:

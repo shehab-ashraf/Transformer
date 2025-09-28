@@ -100,13 +100,13 @@ class TransformerLightning(pl.LightningModule):
             pred_texts.append(pred_text)
             true_texts.append(ref_text)
     
-            # Store for epoch end
-            if not hasattr(self, 'all_preds'):
-                self.all_preds = []
-                self.all_trues = []
+        # Store for epoch end
+        if not hasattr(self, 'all_preds'):
+            self.all_preds = []
+            self.all_trues = []
             
-            self.all_preds.extend(pred_texts)
-            self.all_trues.extend(true_texts)
+        self.all_preds.extend(pred_texts)
+        self.all_trues.extend(true_texts)
             
         self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
         return loss

@@ -5,16 +5,13 @@ from typing import List
 class TokenizerConfig:
     vocab_size: int = 24000
     min_frequency: int = 3
-    save_dir: str = "checkpoints/tokenizer"
 
 @dataclass
 class DataConfig:
-    batch_size: int = 32
+    batch_size: int = 128
     num_workers: int = 0
     pin_memory: bool = True
     max_seq_len: int = 100
-    use_token_batching: bool = False
-    target_tokens_per_batch: int = 500
 
 @dataclass
 class ModelConfig:
@@ -22,18 +19,16 @@ class ModelConfig:
     n_heads: int = 8    # paper default
     n_layers: int = 6   # paper default
     d_ff: int = 2048    # paper default
-    dropout: float = 0.1
-    max_seq_len: int = 128
-    share_embeddings: bool = True  # paper default
+    dropout: float = 0.1 # paper default
 
 @dataclass
 class TrainingConfig:
-    max_epochs: int = 30
-    learning_rate: float = 1.0    # base LR for Noam schedule (scaled by LambdaLR)
+    max_epochs: int = 20
+    learning_rate: float = 1.0    
     warmup_steps: int = 4000      # paper default
     gradient_clip_val: float = 1.0
     label_smoothing: float = 0.1  # paper default
-    accumulate_grad_batches: int = 2
+    accumulate_grad_batches: int = 1
     optimizer_betas: tuple = (0.9, 0.98)  # paper default
     optimizer_eps: float = 1e-9    # paper default
 
@@ -43,9 +38,3 @@ class Config:
     data: DataConfig = field(default_factory=DataConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
-    seed: int = 42
-    device: str = "cuda"
-
-    def __post_init__(self):
-        # Ensure model and data configs use same max_seq_len
-        self.model.max_seq_len = self.data.max_seq_len

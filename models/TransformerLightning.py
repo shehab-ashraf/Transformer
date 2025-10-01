@@ -2,105 +2,146 @@ import torch
 import torch.nn as nn
 from torch.optim import Adam
 from torch.optim.lr_scheduler import LambdaLR
-from torchmetrics.text import BLEUScore
 import pytorch_lightning as pl
-from nltk.translate.bleu_score import corpus_bleu
+from evaluate import load
 
-from Config import Config  # Import Config class
+from models.utils import create_src_mask, create_tgt_mask
+from inference.greedy_decode import greedy_decode
+from Config import Config
+
 
 class TransformerLightning(pl.LightningModule):
-    def __init__(
-        self,
-        config: "Config",
-        transformer: nn.Module,
-        tokenizer,  # tokenizer object that has decode method
-    ):
+    """
+    PyTorch Lightning wrapper for Transformer training and evaluation.
+    
+    Handles:
+    - Training with teacher forcing
+    - Validation with BLEU scoring
+    - Learning rate warmup and scheduling
+    - Auto logging and checkpointing
+    """
+    
+    def __init__(self, config: Config, transformer: nn.Module, tokenizer):
+        """
+        Args:
+            config: All hyperparameters and settings
+            transformer: The Transformer model
+            tokenizer: Tokenizer for encoding/decoding text
+        """
         super().__init__()
         self.config = config
         self.transformer = transformer
         self.tokenizer = tokenizer
 
-        # Save hyperparameters for checkpointing
+        # Save config for checkpoint resume (exclude large objects)
         self.save_hyperparameters(ignore=['transformer', 'tokenizer'])
 
-        # Initialize loss function
+        # Loss function: ignores padding, smooths labels
         self.criterion = nn.CrossEntropyLoss(
             label_smoothing=config.training.label_smoothing, 
-            ignore_index=0  # assuming 0 is pad_idx
+            ignore_index=tokenizer.token_to_id("[PAD]")
         )
 
-        # Initialize BLEU metric
-        self.bleu = BLEUScore(n_gram=4)
+        # BLEU metric for translation quality
+        self.bleu_metric = load("sacrebleu")
 
-    def forward(self, src, tgt):
-        src_mask = self.create_src_mask(src)
-        tgt_mask = self.create_tgt_mask(tgt)
 
+    def forward(self, src: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
+        """
+        Run Transformer forward pass.
+        
+        Args:
+            src: Source tokens [batch_size, src_len]
+            tgt: Target tokens [batch_size, tgt_len]
+            
+        Returns:
+            Logits [batch_size, tgt_len, vocab_size]
+        """
+        # Create attention masks
+        src_mask = create_src_mask(src).to(self.device)
+        tgt_mask = create_tgt_mask(tgt).to(self.device)
+
+        # Encode → Decode → Project to vocabulary
         enc_output = self.transformer.encode(src, src_mask)
         dec_output = self.transformer.decode(tgt, enc_output, src_mask, tgt_mask)
         return self.transformer.project(dec_output)
+    
 
-    def create_src_mask(self, src):
-        src_mask = (src != 0).unsqueeze(1).unsqueeze(2)
-        return src_mask.to(self.device)
-
-    def create_tgt_mask(self, tgt):
-        tgt_mask = (tgt != 0).unsqueeze(1).unsqueeze(2)
-        seq_length = tgt.size(1)
-        nopeak_mask = (1 - torch.triu(torch.ones(1, seq_length, seq_length), diagonal=1)).bool()
-        tgt_mask = tgt_mask.to(self.device)
-        nopeak_mask = nopeak_mask.to(self.device)
-        return tgt_mask & nopeak_mask
-
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch: tuple, batch_idx: int) -> torch.Tensor:
+        """
+        Single training step with teacher forcing.
+        
+        Teacher forcing: Feed ground truth tokens as input, predict next token.
+        """
         src, tgt = batch
+        
+        # Shift target: input=[SOS, w1, w2], output=[w1, w2, EOS]
         tgt_input = tgt[:, :-1]
         tgt_output = tgt[:, 1:]
 
+        # Forward pass and loss
         logits = self(src, tgt_input)
-        loss = self.criterion(logits.reshape(-1, logits.size(-1)), tgt_output.reshape(-1))
+        loss = self.criterion(
+            logits.reshape(-1, logits.size(-1)),  # [batch*seq, vocab]
+            tgt_output.reshape(-1)                 # [batch*seq]
+        )
 
-        # Get current learning rate
+        # Log metrics
         current_lr = self.trainer.optimizers[0].param_groups[0]['lr']
-
-        # Step-level logging with comprehensive metrics
-        self.log('train_loss_step', loss, on_step=True, on_epoch=False, prog_bar=True)
-        self.log('learning_rate', current_lr, on_step=True, on_epoch=False, prog_bar=True)
+        self.log('train_loss_step', loss, on_step=True, prog_bar=True)
+        self.log('learning_rate', current_lr, on_step=True, prog_bar=True)
 
         return loss
     
-    def validation_step(self, batch, batch_idx):
+
+    def validation_step(self, batch: tuple, batch_idx: int) -> torch.Tensor:
+        """
+        Validation step: compute loss and generate translations for BLEU.
+        """
         src, tgt = batch
         tgt_input = tgt[:, :-1]
         tgt_output = tgt[:, 1:]
 
+        # Calculate loss with teacher forcing
         logits = self(src, tgt_input)
-        loss = self.criterion(logits.reshape(-1, logits.size(-1)), tgt_output.reshape(-1))
+        loss = self.criterion(
+            logits.reshape(-1, logits.size(-1)), 
+            tgt_output.reshape(-1)
+        )
 
-        # Store batch results
-        pred = logits.argmax(-1)
+        # Generate translations using greedy decoding
+        pred = greedy_decode(
+            model=self.transformer,
+            src=src,
+            sos_idx=self.tokenizer.token_to_id("[SOS]"),
+            eos_idx=self.tokenizer.token_to_id("[EOS]"),
+            device=self.device
+        )
         
-        # Decode entire batch efficiently
+        # Decode predictions and references to text
         pred_texts = []
         true_texts = []
+        pad_idx = self.tokenizer.token_to_id("[PAD]")
         
         for i in range(pred.size(0)):
-            pred_seq = pred[i]
-            ref_seq = tgt_output[i]
+            # Remove padding tokens
+            pred_mask = (pred[i] != pad_idx)
+            ref_mask = (tgt_output[i] != pad_idx)
             
-            # Remove padding
-            pred_mask = pred_seq != 0
-            ref_mask = ref_seq != 0
-            
-            pred_text = self.tokenizer.decode(pred_seq[pred_mask].tolist(), 
-                                            skip_special_tokens=True)
-            ref_text = self.tokenizer.decode(ref_seq[ref_mask].tolist(), 
-                                            skip_special_tokens=True)
+            # Convert token IDs to text
+            pred_text = self.tokenizer.decode(
+                pred[i][pred_mask].tolist(), 
+                skip_special_tokens=True
+            )
+            ref_text = self.tokenizer.decode(
+                tgt_output[i][ref_mask].tolist(), 
+                skip_special_tokens=True
+            )
             
             pred_texts.append(pred_text)
             true_texts.append(ref_text)
     
-        # Store for epoch end
+        # Accumulate for BLEU calculation at epoch end
         if not hasattr(self, 'all_preds'):
             self.all_preds = []
             self.all_trues = []
@@ -108,23 +149,36 @@ class TransformerLightning(pl.LightningModule):
         self.all_preds.extend(pred_texts)
         self.all_trues.extend(true_texts)
             
-        self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log('val_loss', loss, on_epoch=True, prog_bar=True)
         return loss
 
+
     def on_validation_epoch_end(self):
+        """Calculate BLEU score across all validation batches."""
         if hasattr(self, 'all_preds') and self.all_preds:
-            # Convert to token lists for BLEU
-            references = [[t.split()] for t in self.all_trues]
-            candidates = [p.split() for p in self.all_preds]
+            # Format: each reference wrapped in list for sacrebleu
+            references = [[ref] for ref in self.all_trues]
             
-            bleu_score = corpus_bleu(references, candidates)
-            self.log('val_bleu', bleu_score, prog_bar=True)
+            # Compute BLEU score
+            bleu_result = self.bleu_metric.compute(
+                predictions=self.all_preds, 
+                references=references,
+                smooth_method="floor",
+                smooth_value=0
+            )
             
-            # Reset
+            self.log('val_bleu', bleu_result['score'], prog_bar=True)
+            
+            # Clear for next epoch
             self.all_preds = []
             self.all_trues = []
 
-    def configure_optimizers(self):
+
+    def configure_optimizers(self) -> dict:
+        """
+        Setup optimizer and learning rate scheduler.
+        Uses Transformer paper's schedule: warmup then decay.
+        """
         optimizer = Adam(
             self.parameters(),
             lr=self.config.training.learning_rate,
@@ -132,22 +186,34 @@ class TransformerLightning(pl.LightningModule):
             eps=self.config.training.optimizer_eps
         )
 
-        def lr_lambda(step):
-            # Implementation of formula from Section 5.3 of Transformer paper
-            # lrate = d_model^(-0.5) * min(step^(-0.5), step * warmup_steps^(-1.5))
+        def lr_lambda(step: int) -> float:
+            """
+            Learning rate schedule from "Attention Is All You Need".
+            
+            - Warmup: Linear increase for first N steps
+            - Decay: Inverse square root decay after warmup
+            
+            Formula: d_model^-0.5 * min(step^-0.5, step * warmup^-1.5)
+            """
             d_model = self.config.model.d_model
             warmup_steps = self.config.training.warmup_steps
-            step = max(1, step)  # Avoid division by zero
-            factor = d_model ** (-0.5)
-            arg1 = step ** (-0.5)
-            arg2 = step * warmup_steps ** (-1.5)
-            return factor * min(arg1, arg2)
+            step = max(1, step)  # Prevent division by zero
+            
+            # Scale factor based on model size
+            scale = d_model ** (-0.5)
+            
+            # Warmup: linear growth | Decay: inverse sqrt
+            warmup = step * (warmup_steps ** (-1.5))
+            decay = step ** (-0.5)
+            
+            return scale * min(decay, warmup)
 
         scheduler = LambdaLR(optimizer, lr_lambda)
+        
         return {
             'optimizer': optimizer,
             'lr_scheduler': {
                 'scheduler': scheduler,
-                'interval': 'step'
+                'interval': 'step'  # Update every training step
             }
         }

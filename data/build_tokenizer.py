@@ -1,40 +1,49 @@
 from tokenizers import Tokenizer, models, normalizers, pre_tokenizers, trainers, processors
 from datasets import DatasetDict
 
-def build_tokenizer(dataset_dict: DatasetDict, vocab_size: int, min_frequency: int = 3, save_dir: str = 'checkpoints/tokenizer'):
+
+def build_tokenizer(
+    dataset_dict: DatasetDict, 
+    vocab_size: int, 
+    min_frequency: int = 3, 
+) -> Tokenizer:
     """
-    Build and save a BPE tokenizer using all splits of a DatasetDict.
+    Build and train a BPE (Byte-Pair Encoding) tokenizer.
+    
+    This tokenizer is trained on both source (German) and target (English) texts from
+    the dataset, creating a shared vocabulary for both languages.
     
     Args:
-        dataset_dict: DatasetDict containing train, validation, and test splits
-        vocab_size: Maximum vocabulary size
-        min_frequency: Minimum frequency for tokens
-        save_dir: Directory to save the tokenizer JSON file
+        dataset_dict: DatasetDict containing train, validation, and test splits with
+                     'translation' field containing 'de' and 'en' keys
+        vocab_size: Maximum size of the vocabulary
+        min_frequency: Minimum frequency threshold for including tokens in vocabulary
 
     Returns:
-        Tokenizer: The trained tokenizer object.
+        Tokenizer: Trained tokenizer ready for encoding/decoding text
     """
+    
 
-    # 1. Initialize BPE tokenizer
+    # Initialize a BPE tokenizer
     tokenizer = Tokenizer(models.BPE(unk_token="[UNK]"))
 
-    # 2. Normalizer
+    # text normalization
     tokenizer.normalizer = normalizers.Sequence([
-        normalizers.NFC(),
+        normalizers.NFC(),                    # Normalize to NFC 
+        normalizers.Replace(""", '"'),        # Convert curly double quotes to straight quotes
         normalizers.Replace(""", '"'),
-        normalizers.Replace(""", '"'),
-        normalizers.Replace("'", "'"),
-        normalizers.Strip()
+        normalizers.Replace("'", "'"),        # Convert curly single quote to straight apostrophe
+        normalizers.Strip()                   # Remove leading/trailing whitespace
     ])
 
-    # 3. Pre-tokenizer
+    # Split text on whitespace and separate punctuation before BPE training
     tokenizer.pre_tokenizer = pre_tokenizers.Sequence([
-        pre_tokenizers.Whitespace(),
-        pre_tokenizers.Punctuation()
+        pre_tokenizers.Whitespace(),          # Split on whitespace characters
+        pre_tokenizers.Punctuation()          # Separate punctuation from words
     ])
 
-    # 4. Trainer
-    special_tokens = ["[PAD]", "[UNK]", "[SOS]", "[EOS]"]  # PAD is 0, UNK is 1, SOS is 2, EOS is 3
+    # Define special tokens with specific IDs:
+    special_tokens = ["[PAD]", "[UNK]", "[SOS]", "[EOS]"]
     
     trainer = trainers.BpeTrainer(
         vocab_size=vocab_size,
@@ -43,28 +52,36 @@ def build_tokenizer(dataset_dict: DatasetDict, vocab_size: int, min_frequency: i
         show_progress=True,
     )
 
-    # 5. Create data iterator for all splits
+    # Function to yield text data
     def get_all_data():
-        """Yields all texts from all splits for tokenizer training"""
+        """
+        Generator that yields all texts from all dataset splits.
+        
+        Iterates through train, validation, and test splits, yielding both
+        German (source) and English (target) texts for tokenizer training.
+        
+        Yields:
+            str: Individual text samples from the dataset
+        """
         for split_name in ['train', 'validation', 'test']:
             if split_name in dataset_dict:
                 split_data = dataset_dict[split_name]
                 for item in split_data:
-                    # Yield source text (German)
+                    # Yield source language text (German)
                     yield item['translation']['de']
-                    # Yield target text (English)
+                    # Yield target language text (English)
                     yield item['translation']['en']
 
-    # Train tokenizer on all data
+    # Train the BPE tokenizer on all available data
     tokenizer.train_from_iterator(get_all_data(), trainer=trainer)
 
-    # Get token IDs
+    # Retrieve token IDs for special tokens
     SOS_token_id = tokenizer.token_to_id("[SOS]")
     EOS_token_id = tokenizer.token_to_id("[EOS]")
 
-    # Add post-processor
+    # Configure post-processor to automatically add [SOS] and [EOS] tokens
     tokenizer.post_processor = processors.TemplateProcessing(
-        single="[SOS]:0 $A:0 [EOS]:0",
+        single="[SOS]:0 $A:0 [EOS]:0",       # $A represents the input text
         special_tokens=[
             ("[SOS]", SOS_token_id),
             ("[EOS]", EOS_token_id),

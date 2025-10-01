@@ -28,6 +28,6 @@ def create_tgt_mask(tgt: torch.Tensor) -> torch.Tensor:
     tgt_mask = (tgt != 0).unsqueeze(1).unsqueeze(2)
     # Causal mask to prevent looking ahead
     seq_length = tgt.size(1)
-    nopeak_mask = (1 - torch.triu(torch.ones(1, seq_length, seq_length), diagonal=1)).bool()
+    look_ahead_mask = (1 - torch.triu(torch.ones(1, seq_length, seq_length), diagonal=1)).bool()
         
-    return tgt_mask & nopeak_mask
+    return tgt_mask & look_ahead_mask.to_device(tgt.device)

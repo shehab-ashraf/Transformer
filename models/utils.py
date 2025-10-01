@@ -30,4 +30,4 @@ def create_tgt_mask(tgt: torch.Tensor) -> torch.Tensor:
     seq_length = tgt.size(1)
     look_ahead_mask = (1 - torch.triu(torch.ones(1, seq_length, seq_length), diagonal=1)).bool()
         
-    return tgt_mask & look_ahead_mask.to_device(tgt.device)
+    return tgt_mask & look_ahead_mask.to(tgt.device)

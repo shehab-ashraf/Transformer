@@ -180,6 +180,7 @@ class TransformerLightning(pl.LightningModule):
         pred = greedy_decode(
             model=self.transformer,
             src=src,
+            max_length=50,
             sos_idx=self.tokenizer.token_to_id("[SOS]"),
             eos_idx=self.tokenizer.token_to_id("[EOS]"),
             device=self.device

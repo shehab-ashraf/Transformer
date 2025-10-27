@@ -17,11 +17,13 @@ Special Tokens:
 • [EOS]: End of sequence token
 
 Shared Vocabulary:
-i trained ONE tokenizer on BOTH German and English.
+ONE tokenizer on BOTH German and English.
 """
 
+import os
 from tokenizers import Tokenizer, models, normalizers, pre_tokenizers, trainers, processors
 from datasets import DatasetDict
+from Config import Config
 
 
 def build_tokenizer(
@@ -43,6 +45,12 @@ def build_tokenizer(
         Tokenizer: Trained BPE tokenizer ready for encoding/decoding
                   - Automatically adds [SOS] and [EOS] tokens
     """
+
+    config = Config()
+    if os.path.exists(config.paths.tokenizer_file):
+        print(f"✓ Loading existing tokenizer from: {config.paths.tokenizer_file}")
+        tokenizer = Tokenizer.from_file(config.paths.tokenizer_file)
+        return tokenizer
     
     # Create base BPE tokenizer with unknown token
     tokenizer = Tokenizer(models.BPE(unk_token="[UNK]"))
@@ -113,5 +121,10 @@ def build_tokenizer(
             ("[EOS]", EOS_token_id),
         ],
     )
+
+    # Save tokenizer
+    os.makedirs(config.paths.tokenizer_dir, exist_ok=True)
+    tokenizer.save(config.paths.tokenizer_file)
+    print(f"✓ Tokenizer saved to: {config.paths.tokenizer_file}")
 
     return tokenizer

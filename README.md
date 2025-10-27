@@ -62,7 +62,7 @@ Training on **IWSLT2017 (De–En)** dataset using **PyTorch Lightning**.
   - **Decoder Mask:** Prevents attention to **future tokens** and ignores **padding positions**.  
 
 
----
+
 
 ###  Loss Function
 
@@ -74,7 +74,7 @@ We use **Cross-Entropy Loss** with `ignore_index=<pad_id>` to skip padding token
   <img src="/images/lable_smoothing.png" alt="Label Smoothing" width="270">
 </p>
 
----
+
 
 ### Optimizer
 
@@ -89,7 +89,7 @@ This corresponds to increasing the learning rate linearly for the first warmup_s
   <img src="/images/learning_rate_schedule.png" alt="Label Smoothing" width="300">
 </p>
 
----
+
 
 ###  Training
 This project was trained using **Kaggle's free GPU quota** (P100 GPU), making it accessible without expensive compute resources.
@@ -135,8 +135,12 @@ Final dataset sizes: Train=205676, Val=883, Test=8066
 Total Parameters: 56,415,680
 Epoch 0:  37%|▎| 591/1607 [06:50<11:45,  1.44it/s, v_num=h8wd, train_loss=6.160,
 ```
-**[View the complete Kaggle Notebook →]()**
+**[View the complete Kaggle Notebook →](https://www.kaggle.com/code/ashrafs1/transformer)**
 
 
 #### Experiment Tracking
-All training runs are automatically logged to **Weights & Biases** for real-time monitoring and visualization.
+All training runs are automatically logged to **Weights & Biases** for real-time monitoring and visualization.<br>
+**View the project:** [Transformer on W&B](https://wandb.ai/ashrafshehab-/Transformer?nw=nwuserashrafshehab)<br>
+<img width="650" height="300" alt="image" src="https://github.com/user-attachments/assets/f1961676-4d0b-4df0-b78b-c2656cce92e7" />
+
+

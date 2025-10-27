@@ -87,8 +87,14 @@ class PathsConfig:
 
     Attributes:
         checkpoint_dir (str): Directory to save model checkpoints.
+        tokenizer_dir (str): Directory to save/load tokenizer.
+        model_file (str): Path to the model checkpoint file.
+        tokenizer_file (str): Path to the tokenizer file.
     """
     checkpoint_dir: str = "checkpoints/model"
+    tokenizer_dir: str = "checkpoints/tokenizer"
+    model_file: str = "checkpoints/model/model.ckpt"
+    tokenizer_file: str = "checkpoints/tokenizer/tokenizer.json"
 
 
 
